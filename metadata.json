@@ -1,0 +1,5 @@
+{
+  "name": "Gerador de Patrimônio NTI",
+  "description": "Sistema de geração de códigos de patrimônio para TI com controle de sequência e histórico.",
+  "requestFramePermissions": []
+}
