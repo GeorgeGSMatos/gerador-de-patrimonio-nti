@@ -114,7 +114,7 @@ if exist "settings.ini" (
     echo [INFO] Criando settings.ini padrao em dist\...
     (
         echo [database]
-        echo db_path = %DIST_DIR%\patrimonios_nti.db
+        echo db_path = patrimonios_nti.db
         echo.
         echo ; ============================================================
         echo ; CONFIGURACAO DE REDE

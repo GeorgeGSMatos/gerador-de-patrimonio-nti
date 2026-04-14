@@ -44,7 +44,7 @@ class PatrimonioModel:
             Caminho absoluto do diretório de execução.
         """
         if getattr(sys, 'frozen', False):
-            return os.path.dirname(sys.executable)
+            return os.path.abspath(os.path.dirname(sys.executable))
         return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     def _get_db_path(self) -> str:
@@ -70,6 +70,8 @@ class PatrimonioModel:
 
         if db_path_cfg and db_path_cfg.strip():
             resolved = db_path_cfg.strip()
+            if not os.path.isabs(resolved):
+                resolved = os.path.join(exe_dir, resolved)
             logger.info("Banco configurado via settings.ini: %s", resolved)
             return resolved
 
