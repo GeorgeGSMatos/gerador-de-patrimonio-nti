@@ -1,1 +1,1 @@
-"""Controllers package."""
+"""Pacote de controladores lógicos."""

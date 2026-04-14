@@ -5,11 +5,17 @@ build/
 dist/
 *.spec
 
-# Banco de Dados SQLite (Não comitar dados reais da rede)
+# Banco de Dados SQLite (não comitar dados reais da rede)
 *.db
 *.db-wal
 *.db-shm
 *.db-journal
+
+# Arquivos gerados em runtime ou no build (não são fonte)
+settings.ini
+patrimonio.log
+patrimonio.log.*
+icone.ico
 
 # Ambientes / Chaves
 .env

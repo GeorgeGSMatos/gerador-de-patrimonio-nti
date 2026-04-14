@@ -1,1 +1,1 @@
-"""Models package."""
+"""Pacote de modelos de dados."""

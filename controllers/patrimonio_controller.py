@@ -3,8 +3,13 @@
 # ==============================================================================
 # 1. IMPORTS E DEPENDÊNCIAS
 # ==============================================================================
+import logging
 from typing import Any
+
+from config import SEED_MIN, SEED_MAX
 from models.patrimonio_model import PatrimonioModel
+
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # 2. CLASSES DE CONTROLE
@@ -13,61 +18,80 @@ class PatrimonioController:
     """Controlador responsável pela manipulação das requisições de geração de patrimônio."""
 
     def __init__(self) -> None:
-        """Inicializa a conexão com o modelo de dados."""
+        """Inicializa a conexão com o modelo de dados.
+
+        Raises:
+            RuntimeError: Propagado do model se o banco for inacessível.
+        """
         self.model = PatrimonioModel()
 
     def get_configuracoes(self) -> list[dict[str, Any]] | dict[str, str]:
         """Recupera as configurações atuais de sequenciamento.
 
         Returns:
-            Lista de propriedades e estados atuantes ou dicionário com indicação de falha.
+            Lista de configurações ou dicionário com chave 'error'.
         """
         try:
             return self.model.get_configuracoes()
         except Exception as e:
+            logger.error("Erro ao buscar configurações: %s", e)
             return {'error': str(e)}
 
     def configurar(self, config_data: dict[str, Any]) -> dict[str, Any]:
-        """Atualiza os parâmetros de configuração da sequência inicial.
+        """Valida e persiste a seed de sequência de um tipo de equipamento.
 
         Args:
-            config_data: Dicionário contendo as chaves necessárias para a atribuição.
+            config_data: Dicionário com as chaves 'tipo' (str) e 'seed' (int ou str).
 
         Returns:
-            Dicionário de status da operação para propagação do sucesso ou notificação visual.
+            {'success': True} em caso de êxito ou {'error': str} em caso de falha.
         """
+        tipo: str | None = config_data.get('tipo')
+        seed: Any = config_data.get('seed')
+
+        if not tipo or seed is None:
+            return {'error': 'Tipo e seed são obrigatórios.'}
+
         try:
-            tipo: str | None = config_data.get('tipo')
-            seed: Any = config_data.get('seed')
-            
-            if not tipo or seed is None:
-                return {'error': 'Dados inválidos para configuração.'}
-                
-            seed_num: int = int(seed)
-            self.model.set_configuracao(tipo, seed_num)
-            return {'success': True}
+            seed_num: int = int(str(seed).strip())
         except ValueError:
             return {'error': 'A seed fornecida não é um número válido.'}
+
+        if not (SEED_MIN <= seed_num <= SEED_MAX):
+            return {
+                'error': (
+                    f"A seed deve estar entre {SEED_MIN:,} e {SEED_MAX:,}. "
+                    f"Valor recebido: {seed_num:,}."
+                )
+            }
+
+        try:
+            self.model.set_configuracao(tipo, seed_num)
+            return {'success': True}
         except Exception as e:
+            logger.error("Erro ao salvar configuração tipo='%s': %s", tipo, e)
             return {'error': str(e)}
 
     def gerar(self, data: dict[str, Any]) -> dict[str, str]:
-        """Gera e registra um novo código de patrimônio com base no log do formulário.
+        """Gera e registra um novo código de patrimônio.
 
         Args:
-            data: Dicionário contendo atributos originados da interação com o flet.
+            data: Dicionário com as chaves 'tipo' (str) e 'unidade' (str).
 
         Returns:
-            Dicionário contendo a chave vinculada ao código pronto ou erro gerado.
+            {'codigo': str} em caso de êxito ou {'error': str} em caso de falha.
         """
+        tipo: str | None = data.get('tipo')
+        unidade: str | None = data.get('unidade')
+
+        if not tipo or not unidade:
+            return {'error': 'Tipo e Unidade são obrigatórios.'}
+
         try:
-            tipo: str | None = data.get('tipo')
-            unidade: str | None = data.get('unidade')
-            
-            if not tipo or not unidade:
-                return {'error': 'Tipo e Unidade são obrigatórios.'}
-                
             codigo: str = self.model.gerar_codigo(tipo, unidade)
             return {'codigo': codigo}
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             return {'error': str(e)}
+        except Exception as e:
+            logger.error("Erro inesperado ao gerar código: %s", e)
+            return {'error': f"Erro inesperado: {e}"}
