@@ -8,8 +8,15 @@ import sys
 import socket
 import sqlite3
 import logging
+import time
 import configparser
+import contextlib
 from typing import Any
+
+if os.name == 'nt':
+    import msvcrt
+else:
+    msvcrt = None
 
 from config import DB_FILENAME, DB_BUSY_TIMEOUT_MS, DB_TIMEOUT, CODIGO_ZFILL, SETTINGS_FILENAME
 
@@ -110,6 +117,42 @@ class PatrimonioModel:
         except OSError as e:
             logger.warning("Não foi possível criar settings.ini: %s", e)
 
+    def _acquire_network_lock(self):
+        """Context manager para criar um lock atômico de rede via arquivo, 
+        prevenindo erros no lock nativo do SQLite sobre SMB/redes."""
+        @contextlib.contextmanager
+        def network_lock():
+            lock_path = self.db_path + ".lock"
+            f_lock = None
+            locked = False
+            if msvcrt:
+                try:
+                    f_lock = open(lock_path, 'a')
+                    start_time = time.time()
+                    while time.time() - start_time < DB_TIMEOUT:
+                        try:
+                            # Tenta travar exclusivamente o 1º byte
+                            msvcrt.locking(f_lock.fileno(), msvcrt.LK_NBLCK, 1)
+                            locked = True
+                            break
+                        except OSError:
+                            time.sleep(0.5)
+                            
+                    if not locked:
+                        raise RuntimeError("Sistema em uso por outro usuário na rede. Tente gerá-lo de novo em instantes.")
+                    yield
+                finally:
+                    if f_lock:
+                        if locked:
+                            try:
+                                msvcrt.locking(f_lock.fileno(), msvcrt.LK_UNLCK, 1)
+                            except OSError:
+                                pass
+                        f_lock.close()
+            else:
+                yield
+        return network_lock()
+
     def _conectar(self) -> sqlite3.Connection:
         """Abre uma conexão SQLite com os pragmas de segurança aplicados.
 
@@ -186,20 +229,21 @@ class PatrimonioModel:
             tipo: Código do tipo de equipamento (ex: 'C', 'M', 'N').
             seed: Último número utilizado na sequência.
         """
-        conn = self._conectar()
-        try:
-            conn.execute('BEGIN EXCLUSIVE')
-            conn.execute(
-                'REPLACE INTO Controle_Sequencia_V2 (Tipo_Equip, Ultimo_Codigo) VALUES (?, ?)',
-                (tipo, seed)
-            )
-            conn.execute('COMMIT')
-            logger.info("Seed do tipo '%s' atualizada para %d.", tipo, seed)
-        except Exception as e:
-            conn.execute('ROLLBACK')
-            raise
-        finally:
-            conn.close()
+        with self._acquire_network_lock():
+            conn = self._conectar()
+            try:
+                conn.execute('BEGIN EXCLUSIVE')
+                conn.execute(
+                    'REPLACE INTO Controle_Sequencia_V2 (Tipo_Equip, Ultimo_Codigo) VALUES (?, ?)',
+                    (tipo, seed)
+                )
+                conn.execute('COMMIT')
+                logger.info("Seed do tipo '%s' atualizada para %d.", tipo, seed)
+            except Exception as e:
+                conn.execute('ROLLBACK')
+                raise
+            finally:
+                conn.close()
 
     def gerar_codigo(self, tipo: str, unidade: str) -> str:
         """Gera atomicamente um novo código de patrimônio sob transação exclusiva.
@@ -218,48 +262,54 @@ class PatrimonioModel:
         usuario = _get_usuario()
         maquina = socket.gethostname()
 
-        conn: sqlite3.Connection = self._conectar()
-        try:
-            conn.execute('BEGIN EXCLUSIVE')
-            cursor: sqlite3.Cursor = conn.cursor()
+        with self._acquire_network_lock():
+            conn: sqlite3.Connection = self._conectar()
+            try:
+                conn.execute('BEGIN EXCLUSIVE')
+                cursor: sqlite3.Cursor = conn.cursor()
 
-            cursor.execute(
-                'SELECT Ultimo_Codigo FROM Controle_Sequencia_V2 WHERE Tipo_Equip = ?', (tipo,)
-            )
-            row = cursor.fetchone()
-
-            if not row:
-                raise ValueError(
-                    f"Tipo '{tipo}' sem seed configurada. Configure antes de gerar."
+                cursor.execute(
+                    'SELECT Ultimo_Codigo FROM Controle_Sequencia_V2 WHERE Tipo_Equip = ?', (tipo,)
                 )
+                row = cursor.fetchone()
 
-            novo_num: int = row[0] + 1
-            codigo: str = f"{tipo}{unidade}-BT1{str(novo_num).zfill(CODIGO_ZFILL)}"
+                if not row:
+                    raise ValueError(
+                        f"Tipo '{tipo}' sem seed configurada. Configure antes de gerar."
+                    )
 
-            cursor.execute(
-                'SELECT 1 FROM Historico_Patrimonio WHERE Codigo_Patrimonio = ?', (codigo,)
-            )
-            if cursor.fetchone():
-                raise RuntimeError(f"Código '{codigo}' já existe no histórico.")
+                ultimo_num_bd: int = row[0]
+                novo_num: int = ultimo_num_bd + 1
+                codigo: str = f"{tipo}{unidade}-BT1{str(novo_num).zfill(CODIGO_ZFILL)}"
 
-            cursor.execute(
-                'UPDATE Controle_Sequencia_V2 SET Ultimo_Codigo = ? WHERE Tipo_Equip = ?',
-                (novo_num, tipo)
-            )
-            cursor.execute(
-                'INSERT INTO Historico_Patrimonio (Codigo_Patrimonio, Usuario, Maquina) VALUES (?, ?, ?)',
-                (codigo, usuario, maquina)
-            )
-            conn.execute('COMMIT')
-            logger.info("Código gerado: %s | Usuário: %s | Máquina: %s", codigo, usuario, maquina)
-            return codigo
+                cursor.execute(
+                    'SELECT 1 FROM Historico_Patrimonio WHERE Codigo_Patrimonio = ?', (codigo,)
+                )
+                if cursor.fetchone():
+                    raise RuntimeError(f"Ocorreu uma concorrência de rede. O código '{codigo}' já existe. Tente Novamente.")
 
-        except Exception as e:
-            conn.execute('ROLLBACK')
-            logger.error("Falha ao gerar código para tipo='%s': %s", tipo, e)
-            raise
-        finally:
-            conn.close()
+                cursor.execute(
+                    'UPDATE Controle_Sequencia_V2 SET Ultimo_Codigo = ? WHERE Tipo_Equip = ? AND Ultimo_Codigo = ?',
+                    (novo_num, tipo, ultimo_num_bd)
+                )
+                
+                if cursor.rowcount == 0:
+                    raise RuntimeError("A sequência foi alterada por outro usuário neste instante. Tente novamente.")
+
+                cursor.execute(
+                    'INSERT INTO Historico_Patrimonio (Codigo_Patrimonio, Usuario, Maquina) VALUES (?, ?, ?)',
+                    (codigo, usuario, maquina)
+                )
+                conn.execute('COMMIT')
+                logger.info("Código gerado: %s | Usuário: %s | Máquina: %s", codigo, usuario, maquina)
+                return codigo
+
+            except Exception as e:
+                conn.execute('ROLLBACK')
+                logger.error("Falha ao gerar código para tipo='%s': %s", tipo, e)
+                raise
+            finally:
+                conn.close()
 
 
 # ==============================================================================

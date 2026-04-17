@@ -6,32 +6,19 @@
 import os
 import sys
 import logging
-from logging.handlers import RotatingFileHandler
 
 import flet as ft
 
-from config import LOG_FILENAME, LOG_MAX_BYTES, LOG_BACKUP_COUNT, ASSETS_DIR, ICON_FILE
+from config import ASSETS_DIR, ICON_FILE
 from views.main_view import main
 
 # ==============================================================================
 # 2. CONFIGURAÇÃO DE LOGGING
 # ==============================================================================
 def _configurar_logging() -> None:
-    """Configura o logging global com saída em arquivo rotativo e no console."""
-    if getattr(sys, 'frozen', False):
-        log_dir: str = os.path.dirname(sys.executable)
-    else:
-        log_dir: str = os.path.dirname(os.path.abspath(__file__))
-
-    log_path: str = os.path.join(log_dir, LOG_FILENAME)
-
+    """Configura o logging global estritamente em memória/console
+    para não sujar a pasta de rede da aplicação."""
     handlers: list[logging.Handler] = [
-        RotatingFileHandler(
-            log_path,
-            maxBytes=LOG_MAX_BYTES,
-            backupCount=LOG_BACKUP_COUNT,
-            encoding="utf-8"
-        ),
         logging.StreamHandler(sys.stdout),
     ]
 
@@ -41,7 +28,7 @@ def _configurar_logging() -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
         handlers=handlers
     )
-    logging.info("Logging inicializado. Arquivo: %s", log_path)
+    logging.info("Logging inicializado no modo estrito de console.")
 
 # ==============================================================================
 # 3. LIMPEZA DE AMBIENTE

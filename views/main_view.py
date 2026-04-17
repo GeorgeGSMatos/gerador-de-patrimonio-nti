@@ -21,6 +21,7 @@ from config import (
     WINDOW_WIDTH,
 )
 from controllers.patrimonio_controller import PatrimonioController
+from models.patrimonio_model import _get_usuario
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +170,9 @@ def main(page: ft.Page) -> None:
 
     historico_list = ft.Column(spacing=5)
 
+    # Cacheia o usuário da sessão para o histórico
+    _usuario_sessao = _get_usuario()
+
     def _adicionar_ao_historico(codigo: str) -> None:
         """Insere o código no topo do histórico da sessão e mantém o limite máximo.
 
@@ -180,12 +184,23 @@ def main(page: ft.Page) -> None:
             ft.Container(
                 content=ft.Row(
                     [
-                        ft.Text(
-                            codigo,
-                            font_family="monospace",
-                            weight=ft.FontWeight.BOLD,
-                            color="#1e293b",
-                            size=13,
+                        ft.Column(
+                            [
+                                ft.Text(
+                                    codigo,
+                                    font_family="monospace",
+                                    weight=ft.FontWeight.BOLD,
+                                    color="#1e293b",
+                                    size=13,
+                                ),
+                                ft.Text(
+                                    f"Gerado por: {_usuario_sessao}",
+                                    size=10,
+                                    color="#64748b",
+                                    italic=True,
+                                ),
+                            ],
+                            spacing=1,
                         ),
                         ft.IconButton(
                             icon=ft.icons.COPY,
@@ -200,7 +215,7 @@ def main(page: ft.Page) -> None:
                 bgcolor="white",
                 border=ft.border.all(1, "#e2e8f0"),
                 border_radius=8,
-                padding=ft.padding.symmetric(horizontal=10, vertical=0),
+                padding=ft.padding.symmetric(horizontal=10, vertical=5),
             ),
         )
         if len(historico_list.controls) > HISTORICO_SESSAO_MAX:
