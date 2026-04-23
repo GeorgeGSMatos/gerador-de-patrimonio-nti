@@ -42,7 +42,19 @@ if errorlevel 1 (
     )
 )
 
-:: --- 3. Converter icon.png para icone.ico ---
+:: --- 3. Verificar Pillow (necessário para converter ícone) ---
+python -c "from PIL import Image" >nul 2>&1
+if errorlevel 1 (
+    echo [INFO] Pillow nao encontrado. Instalando...
+    python -m pip install Pillow --quiet
+    if errorlevel 1 (
+        echo [AVISO] Falha ao instalar Pillow. O executavel usara icone padrao.
+        set ICON_ICO=
+        goto skip_icon
+    )
+)
+
+:: --- 4. Converter icon.png para icone.ico ---
 if not exist "%ICON_PNG%" (
     echo [AVISO] %ICON_PNG% nao encontrado. O executavel usara icone padrao.
     set ICON_ICO=
@@ -58,13 +70,13 @@ if errorlevel 1 (
 
 :skip_icon
 
-:: --- 4. Limpar builds anteriores ---
+:: --- 5. Limpar builds anteriores ---
 echo [INFO] Limpando builds anteriores...
 if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
 if exist "%DIST_DIR%"  rmdir /s /q "%DIST_DIR%"
 if exist "%APP_NAME%.spec" del /q "%APP_NAME%.spec"
 
-:: --- 5. Gerar executável ---
+:: --- 6. Gerar executável ---
 echo [INFO] Iniciando build — isso pode levar alguns minutos...
 echo.
 
@@ -80,6 +92,7 @@ python -m PyInstaller ^
     --name "%APP_NAME%" ^
     %ICON_FLAG% ^
     --add-data "%ASSETS_DIR%;assets" ^
+    --add-data ".env;." ^
     --collect-all flet ^
     --hidden-import models ^
     --hidden-import models.patrimonio_model ^
@@ -92,8 +105,17 @@ python -m PyInstaller ^
     --hidden-import socket ^
     --hidden-import logging ^
     --hidden-import logging.handlers ^
-    --hidden-import supabase ^
+    --collect-all supabase ^
+    --collect-all postgrest ^
+    --collect-all realtime ^
+    --collect-all storage3 ^
+    --collect-all supabase_auth ^
+    --collect-all supabase_functions ^
     --hidden-import dotenv ^
+    --hidden-import httpx ^
+    --hidden-import h2 ^
+    --hidden-import hpack ^
+    --hidden-import hyperframe ^
     "%ENTRY%"
 
 if errorlevel 1 (
@@ -102,7 +124,7 @@ if errorlevel 1 (
     goto cleanup
 )
 
-:: --- 6. (Removido: cópia de arquivos locais de banco de dados e settings) ---
+:: --- 7. (Removido: cópia de arquivos locais de banco de dados e settings) ---
 echo [INFO] O banco de dados agora está rodando integralmente via Supabase (Nuvem).
 
 echo.
@@ -114,7 +136,7 @@ echo.
 explorer "%DIST_DIR%"
 
 :cleanup
-:: --- 7. Limpar artefatos temporários ---
+:: --- 8. Limpar artefatos temporários ---
 echo [INFO] Removendo artefatos temporarios...
 if exist "%BUILD_DIR%"     rmdir /s /q "%BUILD_DIR%"
 if exist "%APP_NAME%.spec" del /q "%APP_NAME%.spec"

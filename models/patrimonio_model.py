@@ -56,7 +56,7 @@ class PatrimonioModel:
             O caminho absoluto do diretório onde o executável ou script se encontra.
         """
         if getattr(sys, 'frozen', False):
-            return os.path.abspath(os.path.dirname(sys.executable))
+            return sys._MEIPASS
         return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     def get_configuracoes(self) -> list[dict[str, Any]]:
