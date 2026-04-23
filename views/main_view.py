@@ -129,7 +129,7 @@ def main(page: ft.Page) -> None:
     )
 
     texto_contador = ft.Text(
-        "0 código(s) gerado(s) nesta sessão", size=11, color="#9ca3af"
+        "Últimos códigos gerados no sistema", size=11, color="#9ca3af"
     )
 
     # --- 2.3. Handlers e Callbacks ---
@@ -170,59 +170,57 @@ def main(page: ft.Page) -> None:
 
     historico_list = ft.Column(spacing=5)
 
-    # Cacheia o usuário da sessão para o histórico
-    _usuario_sessao = _get_usuario()
-
-    def _adicionar_ao_historico(codigo: str) -> None:
-        """Insere o código no topo do histórico da sessão e mantém o limite máximo.
-
-        Args:
-            codigo: Código de patrimônio gerado a ser exibido.
-        """
-        historico_list.controls.insert(
-            0,
-            ft.Container(
-                content=ft.Row(
-                    [
-                        ft.Column(
-                            [
-                                ft.Text(
-                                    codigo,
-                                    font_family="monospace",
-                                    weight=ft.FontWeight.BOLD,
-                                    color="#1e293b",
-                                    size=13,
-                                ),
-                                ft.Text(
-                                    f"Gerado por: {_usuario_sessao}",
-                                    size=10,
-                                    color="#64748b",
-                                    italic=True,
-                                ),
-                            ],
-                            spacing=1,
-                        ),
-                        ft.IconButton(
-                            icon=ft.icons.COPY,
-                            icon_size=14,
-                            data=codigo,
-                            on_click=copiar_codigo,
-                            tooltip="Copiar",
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                bgcolor="white",
-                border=ft.border.all(1, "#e2e8f0"),
-                border_radius=8,
-                padding=ft.padding.symmetric(horizontal=10, vertical=5),
-            ),
-        )
-        if len(historico_list.controls) > HISTORICO_SESSAO_MAX:
-            historico_list.controls.pop()
+    def _atualizar_historico() -> None:
+        """Busca os últimos códigos no banco de dados e atualiza a interface."""
+        historicos = controller.get_ultimos_historicos(HISTORICO_SESSAO_MAX)
+        historico_list.controls.clear()
+        
+        for item in historicos:
+            codigo = item.get("Codigo_Patrimonio", "---")
+            usuario_db = item.get("Usuario", "desconhecido")
+            
+            historico_list.controls.append(
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Column(
+                                [
+                                    ft.Text(
+                                        codigo,
+                                        font_family="monospace",
+                                        weight=ft.FontWeight.BOLD,
+                                        color="#1e293b",
+                                        size=13,
+                                    ),
+                                    ft.Text(
+                                        f"Gerado por: {usuario_db}",
+                                        size=10,
+                                        color="#64748b",
+                                        italic=True,
+                                    ),
+                                ],
+                                spacing=1,
+                            ),
+                            ft.IconButton(
+                                icon=ft.icons.COPY,
+                                icon_size=14,
+                                data=codigo,
+                                on_click=copiar_codigo,
+                                tooltip="Copiar",
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    bgcolor="white",
+                    border=ft.border.all(1, "#e2e8f0"),
+                    border_radius=8,
+                    padding=ft.padding.symmetric(horizontal=10, vertical=5),
+                )
+            )
 
         total = len(historico_list.controls)
-        texto_contador.value = f"{total} código(s) gerado(s) nesta sessão"
+        texto_contador.value = f"Mostrando os últimos {total} código(s)"
+        page.update()
 
     def _executar_geracao() -> None:
         """Executa a geração do código em thread separada para não bloquear a UI."""
@@ -240,7 +238,7 @@ def main(page: ft.Page) -> None:
             texto_codigo.value = codigo
             btn_copiar_main.data = codigo
             result_container.visible = True
-            _adicionar_ao_historico(codigo)
+            _atualizar_historico()
             update_feedback()
 
         btn_gerar.disabled = False
@@ -509,14 +507,22 @@ def main(page: ft.Page) -> None:
                     [
                         ft.Icon(ft.icons.HISTORY, size=16, color="#9ca3af"),
                         ft.Text(
-                            "HISTÓRICO DA SESSÃO",
+                            "HISTÓRICO RECENTE",
                             size=11,
                             weight=ft.FontWeight.BOLD,
                             color="#9ca3af",
                         ),
+                        ft.IconButton(
+                            icon=ft.icons.REFRESH,
+                            icon_size=14,
+                            icon_color="#9ca3af",
+                            tooltip="Atualizar histórico",
+                            on_click=lambda e: _atualizar_historico(),
+                        ),
                         ft.Container(expand=True),
                         texto_contador,
-                    ]
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 historico_list,
             ],
@@ -528,6 +534,9 @@ def main(page: ft.Page) -> None:
     )
 
     page.add(ft.Column([header, body], spacing=0, expand=True))
+    
+    # Atualiza o histórico ao iniciar a aplicação
+    _atualizar_historico()
 
 
 # ==============================================================================

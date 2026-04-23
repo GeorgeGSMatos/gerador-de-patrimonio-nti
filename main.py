@@ -48,6 +48,13 @@ def _limpar_arquivos_obsoletos() -> None:
                 logging.warning("Não foi possível remover '%s': %s", filename, e)
 
 
+def _get_assets_dir() -> str:
+    """Retorna o caminho absoluto do diretório de assets, suportando o PyInstaller (_MEIPASS)."""
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, ASSETS_DIR)
+    return os.path.join(os.path.abspath(os.path.dirname(__file__)), ASSETS_DIR)
+
+
 # ==============================================================================
 # 4. EXECUÇÃO PRINCIPAL
 # ==============================================================================
@@ -56,5 +63,5 @@ if __name__ == "__main__":
     _limpar_arquivos_obsoletos()
     ft.app(
         target=main,
-        assets_dir=ASSETS_DIR,
+        assets_dir=_get_assets_dir(),
     )

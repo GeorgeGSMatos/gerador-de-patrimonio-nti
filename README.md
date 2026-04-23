@@ -1,5 +1,5 @@
 <div align="center">
-  ![Capa do Projeto](link_da_imagem_aqui)
+  ![Capa do Projeto](interface.png)
 </div>
 
 # Gerador de Patrimônio NTI

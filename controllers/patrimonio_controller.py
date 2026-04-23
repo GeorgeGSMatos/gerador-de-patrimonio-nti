@@ -95,3 +95,18 @@ class PatrimonioController:
         except Exception as e:
             logger.error("Erro inesperado ao gerar código: %s", e)
             return {'error': f"Erro inesperado: {e}"}
+
+    def get_ultimos_historicos(self, limite: int = 5) -> list[dict[str, Any]]:
+        """Recupera os últimos códigos gerados no banco de dados.
+
+        Args:
+            limite: Quantidade máxima de registros a retornar.
+
+        Returns:
+            Lista de históricos.
+        """
+        try:
+            return self.model.get_ultimos_historicos(limite)
+        except Exception as e:
+            logger.error("Erro ao buscar históricos globais: %s", e)
+            return []

@@ -43,18 +43,20 @@ if errorlevel 1 (
 )
 
 :: --- 3. Converter icon.png para icone.ico ---
-if exist "%ICON_PNG%" (
-    echo [INFO] Convertendo %ICON_PNG% para %ICON_ICO%...
-    python -c ^
-        "from PIL import Image; img=Image.open(r'%ICON_PNG%').convert('RGBA'); img.save('%ICON_ICO%', format='ICO', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)]); print('[INFO] %ICON_ICO% gerado com sucesso.')"
-    if errorlevel 1 (
-        echo [AVISO] Falha ao converter icone. Continuando sem icone personalizado.
-        set ICON_ICO=
-    )
-) else (
+if not exist "%ICON_PNG%" (
     echo [AVISO] %ICON_PNG% nao encontrado. O executavel usara icone padrao.
     set ICON_ICO=
+    goto skip_icon
 )
+
+echo [INFO] Convertendo %ICON_PNG% para %ICON_ICO%...
+python -c "from PIL import Image; img=Image.open(r'%ICON_PNG%').convert('RGBA'); img.save('%ICON_ICO%', format='ICO', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+if errorlevel 1 (
+    echo [AVISO] Falha ao converter icone. Continuando sem icone personalizado.
+    set ICON_ICO=
+)
+
+:skip_icon
 
 :: --- 4. Limpar builds anteriores ---
 echo [INFO] Limpando builds anteriores...
@@ -86,11 +88,12 @@ python -m PyInstaller ^
     --hidden-import views ^
     --hidden-import views.main_view ^
     --hidden-import config ^
-    --hidden-import sqlite3 ^
     --hidden-import threading ^
     --hidden-import socket ^
     --hidden-import logging ^
     --hidden-import logging.handlers ^
+    --hidden-import supabase ^
+    --hidden-import dotenv ^
     "%ENTRY%"
 
 if errorlevel 1 (
@@ -99,35 +102,8 @@ if errorlevel 1 (
     goto cleanup
 )
 
-:: --- 6. Copiar arquivos de dados para dist\ ---
-echo [INFO] Copiando arquivos de dados para dist\...
-
-if exist "patrimonios_nti.db" (
-    copy /y "patrimonios_nti.db" "%DIST_DIR%\patrimonios_nti.db" >nul
-    echo [INFO] Banco de dados copiado.
-)
-
-if exist "settings.ini" (
-    copy /y "settings.ini" "%DIST_DIR%\settings.ini" >nul
-    echo [INFO] settings.ini copiado.
-) else (
-    echo [INFO] Criando settings.ini padrao em dist\...
-    (
-        echo [database]
-        echo db_path = patrimonios_nti.db
-        echo.
-        echo ; ============================================================
-        echo ; CONFIGURACAO DE REDE
-        echo ; ============================================================
-        echo ; Se os tecnicos rodarem o .exe em maquinas diferentes,
-        echo ; altere db_path para o caminho de rede compartilhada.
-        echo ; Exemplo:
-        echo ;   db_path = \\servidor\nti\patrimonios_nti.db
-        echo ; Todos os .exe devem apontar para o MESMO arquivo .db.
-        echo ; ============================================================
-    ) > "%DIST_DIR%\settings.ini"
-    echo [AVISO] Edite dist\settings.ini e configure o caminho de rede antes de distribuir.
-)
+:: --- 6. (Removido: cópia de arquivos locais de banco de dados e settings) ---
+echo [INFO] O banco de dados agora está rodando integralmente via Supabase (Nuvem).
 
 echo.
 echo  ============================================

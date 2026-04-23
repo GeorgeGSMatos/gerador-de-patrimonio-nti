@@ -17,10 +17,8 @@ UNIDADES: list[dict[str, str]] = [
 # ==============================================================================
 # 2. BANCO DE DADOS
 # ==============================================================================
-DB_FILENAME: str = "patrimonios_nti.db"
-SETTINGS_FILENAME: str = "settings.ini"
-DB_TIMEOUT: int = 15  # segundos — timeout de conexão Python
-DB_BUSY_TIMEOUT_MS: int = 15_000  # milissegundos — busy_timeout interno do SQLite
+# (Migrado integralmente para Supabase, o banco local foi desativado e removido)
+
 
 # ==============================================================================
 # 3. JANELA
