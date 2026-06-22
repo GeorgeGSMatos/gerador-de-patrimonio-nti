@@ -45,10 +45,17 @@ def main(page: ft.Page) -> None:
     page.padding = 0
 
     # --- 2.1. Inicialização do Controller ---
+    controller: PatrimonioController | None = None
     try:
         controller = PatrimonioController()
     except RuntimeError as e:
-        _exibir_erro_critico(page, str(e))
+        erro_str = str(e)
+        # Verifica se é erro de conexão/pausa para exibir tela especial
+        erros_conexao_kw = ("getaddrinfo", "pausado", "conectar", "supabase")
+        if any(kw in erro_str.lower() for kw in erros_conexao_kw):
+            _exibir_tela_pausado(page)
+        else:
+            _exibir_erro_critico(page, erro_str)
         return
 
     # Estado de controle anti-duplo-clique
@@ -98,6 +105,88 @@ def main(page: ft.Page) -> None:
         border=ft.border.all(1, "#fee2e2"),
         border_radius=12,
         padding=10,
+        visible=False,
+    )
+
+    # --- Banner: Supabase Pausado ---
+    _reconectando = threading.Event()
+
+    def _tentar_reconectar(e: ft.ControlEvent) -> None:
+        """Tenta reinicializar o controller em background após o usuário despausar.
+
+        Args:
+            e: Evento de clique no botão Reconectar.
+        """
+        if _reconectando.is_set():
+            return
+        _reconectando.set()
+        btn_reconectar.disabled = True
+        ring_reconectar.visible = True
+        txt_reconectar_status.value = "Tentando conectar..."
+        page.update()
+
+        def _reconectar_bg() -> None:
+            nonlocal controller
+            try:
+                novo_controller = PatrimonioController()
+                controller = novo_controller
+                # Reconectou! Recarregar a página do zero
+                page.controls.clear()
+                page.update()
+                main(page)
+            except Exception as exc:
+                logger.warning("Reconexão falhou: %s", exc)
+                btn_reconectar.disabled = False
+                ring_reconectar.visible = False
+                txt_reconectar_status.value = "Ainda sem conexão. Verifique o Supabase e tente novamente."
+                _reconectando.clear()
+                page.update()
+
+        threading.Thread(target=_reconectar_bg, daemon=True).start()
+
+    ring_reconectar = ft.ProgressRing(width=16, height=16, color="#b45309", visible=False)
+    btn_reconectar = ft.ElevatedButton(
+        content=ft.Row(
+            [ft.Icon(ft.icons.REFRESH, color="white", size=16),
+             ft.Text("Reconectar", color="white", weight=ft.FontWeight.BOLD, size=13),
+             ring_reconectar],
+            spacing=6,
+            tight=True,
+        ),
+        bgcolor="#b45309",
+        height=38,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
+        on_click=_tentar_reconectar,
+    )
+    txt_reconectar_status = ft.Text(
+        "Despause o projeto em app.supabase.com e clique em Reconectar.",
+        size=12,
+        color="#92400e",
+    )
+    banner_pausado = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(ft.icons.CLOUD_OFF, color="#b45309", size=20),
+                        ft.Text(
+                            "Supabase pausado",
+                            size=14,
+                            weight=ft.FontWeight.BOLD,
+                            color="#92400e",
+                        ),
+                    ],
+                    spacing=8,
+                ),
+                txt_reconectar_status,
+                btn_reconectar,
+            ],
+            spacing=8,
+        ),
+        bgcolor="#fffbeb",
+        border=ft.border.all(1, "#fde68a"),
+        border_radius=12,
+        padding=14,
         visible=False,
     )
 
@@ -231,9 +320,19 @@ def main(page: ft.Page) -> None:
             }
         )
 
-        if "error" in resultado:
+        if resultado.get("pausado"):
+            # Exibe o banner de Supabase pausado
+            banner_pausado.visible = True
+            txt_reconectar_status.value = "Despause o projeto em app.supabase.com e clique em Reconectar."
+            btn_reconectar.disabled = False
+            ring_reconectar.visible = False
+            container_erro.visible = False
+            result_container.visible = False
+        elif "error" in resultado:
+            banner_pausado.visible = False
             update_feedback(resultado["error"])
         else:
+            banner_pausado.visible = False
             codigo: str = resultado["codigo"]
             texto_codigo.value = codigo
             btn_copiar_main.data = codigo
@@ -500,6 +599,7 @@ def main(page: ft.Page) -> None:
             [
                 ft.Row([combo_tipo, combo_unidade], spacing=15),
                 btn_container,
+                banner_pausado,
                 container_erro,
                 result_container,
                 ft.Divider(height=10, color=ft.colors.TRANSPARENT),
@@ -571,6 +671,99 @@ def _exibir_erro_critico(page: ft.Page, mensagem: str) -> None:
                 alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=12,
+            ),
+            expand=True,
+            alignment=ft.alignment.center,
+            padding=40,
+        )
+    )
+    page.update()
+
+
+def _exibir_tela_pausado(page: ft.Page) -> None:
+    """Renderiza uma tela dedicada informando que o Supabase está pausado.
+
+    Exibe um botão de reconexão que, ao ser clicado, tenta reinicializar
+    a aplicação completa após o usuário despausar o projeto.
+
+    Args:
+        page: Instância da página Flet ativa.
+    """
+    logger.warning("Supabase pausado detectado na inicialização.")
+
+    _reconectando = threading.Event()
+    ring = ft.ProgressRing(width=18, height=18, color="white", visible=False)
+    txt_status = ft.Text(
+        "Despause o projeto em app.supabase.com e clique em Reconectar.",
+        size=12,
+        color="#92400e",
+        text_align=ft.TextAlign.CENTER,
+    )
+    btn = ft.ElevatedButton(
+        content=ft.Row(
+            [
+                ft.Icon(ft.icons.REFRESH, color="white", size=16),
+                ft.Text("Reconectar", color="white", weight=ft.FontWeight.BOLD, size=14),
+                ring,
+            ],
+            spacing=8,
+            tight=True,
+        ),
+        bgcolor="#b45309",
+        height=44,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=12)),
+    )
+
+    def _tentar(e: ft.ControlEvent) -> None:
+        if _reconectando.is_set():
+            return
+        _reconectando.set()
+        btn.disabled = True
+        ring.visible = True
+        txt_status.value = "Tentando conectar ao Supabase..."
+        page.update()
+
+        def _bg() -> None:
+            try:
+                PatrimonioController()  # testa conexão
+                page.controls.clear()
+                page.update()
+                main(page)
+            except Exception as exc:
+                logger.warning("Reconexão falhou: %s", exc)
+                btn.disabled = False
+                ring.visible = False
+                txt_status.value = "Ainda sem conexão. Verifique o Supabase e tente novamente."
+                _reconectando.clear()
+                page.update()
+
+        threading.Thread(target=_bg, daemon=True).start()
+
+    btn.on_click = _tentar
+
+    page.add(
+        ft.Container(
+            content=ft.Column(
+                [
+                    ft.Icon(ft.icons.CLOUD_OFF, color="#b45309", size=64),
+                    ft.Text(
+                        "Supabase pausado",
+                        size=20,
+                        weight=ft.FontWeight.BOLD,
+                        color="#92400e",
+                    ),
+                    ft.Text(
+                        "O banco de dados está pausado por inatividade (plano gratuito).",
+                        size=13,
+                        color="#64748b",
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                    txt_status,
+                    btn,
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=14,
             ),
             expand=True,
             alignment=ft.alignment.center,

@@ -16,6 +16,25 @@ from config import CODIGO_ZFILL
 
 logger = logging.getLogger(__name__)
 
+# Palavras-chave que indicam falha de rede/DNS (Supabase pausado ou sem internet)
+_ERROS_CONEXAO = (
+    "getaddrinfo failed",
+    "name or service not known",
+    "nodename nor servname provided",
+    "connection refused",
+    "timed out",
+    "network is unreachable",
+    "supabase project is paused",
+)
+
+
+# ==============================================================================
+# 2. EXCEÇÃO CUSTOMIZADA
+# ==============================================================================
+class SupabasePausadoError(Exception):
+    """Levantada quando o Supabase está inacessível por pausa ou falha de rede."""
+
+
 # ==============================================================================
 # 2. CLASSES DE MODELO
 # ==============================================================================
@@ -135,10 +154,15 @@ class PatrimonioModel:
 
         except Exception as e:
             logger.error("Falha ao gerar código para tipo='%s': %s", tipo, e)
-            error_msg = str(e)
+            error_msg = str(e).lower()
             if "sem seed configurada" in error_msg:
                 raise ValueError(f"Tipo '{tipo}' sem seed configurada. Configure antes de gerar.") from e
-            raise RuntimeError(f"Erro ao gerar código no Supabase: {error_msg}") from e
+            if any(kw in error_msg for kw in _ERROS_CONEXAO):
+                raise SupabasePausadoError(
+                    "Não foi possível conectar ao Supabase. O projeto pode estar pausado.\n"
+                    "Acesse app.supabase.com e reactive o projeto, depois clique em Reconectar."
+                ) from e
+            raise RuntimeError(f"Erro ao gerar código no Supabase: {str(e)}") from e
 
     def get_ultimos_historicos(self, limite: int = 5) -> list[dict[str, Any]]:
         """Busca os últimos códigos gerados no banco de dados por qualquer usuário.
@@ -169,6 +193,20 @@ class PatrimonioModel:
         except Exception as e:
             logger.error("Erro ao buscar histórico no Supabase: %s", e)
             return []
+
+    def ping(self) -> bool:
+        """Realiza uma consulta mínima para manter o projeto Supabase ativo.
+
+        Returns:
+            True se o ping foi bem-sucedido, False caso contrário.
+        """
+        try:
+            self._supabase.table("controle_sequencia").select("tipo_equip").limit(1).execute()
+            logger.info("[Keep-alive] Ping ao Supabase realizado com sucesso.")
+            return True
+        except Exception as e:
+            logger.warning("[Keep-alive] Ping ao Supabase falhou: %s", e)
+            return False
 
 
 # ==============================================================================

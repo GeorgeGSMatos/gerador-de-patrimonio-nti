@@ -4,12 +4,16 @@
 # 1. IMPORTS E DEPENDÊNCIAS
 # ==============================================================================
 import logging
+import threading
 from typing import Any
 
 from config import SEED_MIN, SEED_MAX
-from models.patrimonio_model import PatrimonioModel
+from models.patrimonio_model import PatrimonioModel, SupabasePausadoError
 
 logger = logging.getLogger(__name__)
+
+# Intervalo do keep-alive: 4 dias em segundos
+_KEEPALIVE_INTERVALO = 4 * 24 * 60 * 60
 
 # ==============================================================================
 # 2. CLASSES DE CONTROLE
@@ -18,12 +22,31 @@ class PatrimonioController:
     """Controlador responsável pela manipulação das requisições de geração de patrimônio."""
 
     def __init__(self) -> None:
-        """Inicializa a conexão com o modelo de dados.
+        """Inicializa a conexão com o modelo de dados e inicia o keep-alive.
 
         Raises:
             RuntimeError: Propagado do model se o banco for inacessível.
         """
         self.model = PatrimonioModel()
+        self._iniciar_keepalive()
+
+    def _iniciar_keepalive(self) -> None:
+        """Inicia a thread de keep-alive que faz ping ao Supabase a cada 4 dias.
+
+        A thread é daemon, portanto encerra automaticamente com o app.
+        """
+        def _loop_keepalive() -> None:
+            # Aguarda 4 dias antes do primeiro ping (o app já fez requisições ao iniciar)
+            evento = threading.Event()
+            while not evento.wait(timeout=_KEEPALIVE_INTERVALO):
+                try:
+                    self.model.ping()
+                except Exception as e:
+                    logger.warning("[Keep-alive] Erro inesperado no ping: %s", e)
+
+        t = threading.Thread(target=_loop_keepalive, daemon=True, name="supabase-keepalive")
+        t.start()
+        logger.info("[Keep-alive] Thread iniciada. Próximo ping em 4 dias.")
 
     def get_configuracoes(self) -> list[dict[str, Any]] | dict[str, str]:
         """Recupera as configurações atuais de sequenciamento.
@@ -90,6 +113,9 @@ class PatrimonioController:
         try:
             codigo: str = self.model.gerar_codigo(tipo, unidade)
             return {'codigo': codigo}
+        except SupabasePausadoError as e:
+            logger.warning("Supabase pausado ao tentar gerar código: %s", e)
+            return {'pausado': True, 'error': str(e)}
         except (ValueError, RuntimeError) as e:
             return {'error': str(e)}
         except Exception as e:
