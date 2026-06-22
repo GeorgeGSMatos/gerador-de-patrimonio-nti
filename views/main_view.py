@@ -50,7 +50,6 @@ def main(page: ft.Page) -> None:
         controller = PatrimonioController()
     except RuntimeError as e:
         erro_str = str(e)
-        # Verifica se é erro de conexão/pausa para exibir tela especial
         erros_conexao_kw = ("getaddrinfo", "pausado", "conectar", "supabase")
         if any(kw in erro_str.lower() for kw in erros_conexao_kw):
             _exibir_tela_pausado(page)
@@ -61,7 +60,7 @@ def main(page: ft.Page) -> None:
     # Estado de controle anti-duplo-clique
     _gerando = threading.Event()
 
-    # --- 2.2. Componentes Dependentes ---
+    # --- 2.2. Componentes da Aba "Gerar" ---
     combo_tipo = ft.Dropdown(
         label="Tipo de Equipamento",
         options=[ft.dropdown.Option(t["key"], t["label"]) for t in TIPOS_EQUIPAMENTO],
@@ -112,11 +111,7 @@ def main(page: ft.Page) -> None:
     _reconectando = threading.Event()
 
     def _tentar_reconectar(e: ft.ControlEvent) -> None:
-        """Tenta reinicializar o controller em background após o usuário despausar.
-
-        Args:
-            e: Evento de clique no botão Reconectar.
-        """
+        """Tenta reinicializar o controller em background após o usuário despausar."""
         if _reconectando.is_set():
             return
         _reconectando.set()
@@ -130,7 +125,6 @@ def main(page: ft.Page) -> None:
             try:
                 novo_controller = PatrimonioController()
                 controller = novo_controller
-                # Reconectou! Recarregar a página do zero
                 page.controls.clear()
                 page.update()
                 main(page)
@@ -217,18 +211,9 @@ def main(page: ft.Page) -> None:
         visible=False,
     )
 
-    texto_contador = ft.Text(
-        "Últimos códigos gerados no sistema", size=11, color="#9ca3af"
-    )
-
     # --- 2.3. Handlers e Callbacks ---
     def update_feedback(msg: str = "", is_error: bool = True) -> None:
-        """Exibe ou limpa a faixa de feedback visual (erro ou sucesso).
-
-        Args:
-            msg: Mensagem a exibir. String vazia oculta o componente.
-            is_error: True para estilo de erro; False para estilo de sucesso.
-        """
+        """Exibe ou limpa a faixa de feedback visual (erro ou sucesso)."""
         if msg:
             texto_erro.value = msg
             icon: ft.Icon = container_erro.content.controls[0]
@@ -247,27 +232,33 @@ def main(page: ft.Page) -> None:
         page.update()
 
     def copiar_codigo(e: ft.ControlEvent) -> None:
-        """Copia o código do evento para a área de transferência.
-
-        Args:
-            e: Evento disparado pelo botão de cópia; utiliza `e.control.data` como valor.
-        """
+        """Copia o código do evento para a área de transferência."""
         page.set_clipboard(e.control.data)
-        update_feedback("Copiado!", is_error=False)
+        page.snack_bar = ft.SnackBar(
+            ft.Text("Copiado para a área de transferência!", color="white"),
+            bgcolor="#059669",
+        )
+        page.snack_bar.open = True
+        page.update()
 
     btn_copiar_main.on_click = copiar_codigo
 
+    # --- 2.4. Aba Histórico ---
     historico_list = ft.Column(spacing=5)
+    texto_contador = ft.Text(
+        "Carregando histórico...", size=11, color="#9ca3af"
+    )
 
     def _atualizar_historico() -> None:
         """Busca os últimos códigos no banco de dados e atualiza a interface."""
         historicos = controller.get_ultimos_historicos(HISTORICO_SESSAO_MAX)
         historico_list.controls.clear()
-        
+
         for item in historicos:
             codigo = item.get("Codigo_Patrimonio", "---")
             usuario_db = item.get("Usuario", "desconhecido")
-            
+            data_hora = item.get("Data_Hora", "")
+
             historico_list.controls.append(
                 ft.Container(
                     content=ft.Row(
@@ -282,13 +273,14 @@ def main(page: ft.Page) -> None:
                                         size=13,
                                     ),
                                     ft.Text(
-                                        f"Gerado por: {usuario_db}",
+                                        f"Gerado por: {usuario_db}  •  {data_hora}",
                                         size=10,
                                         color="#64748b",
                                         italic=True,
                                     ),
                                 ],
                                 spacing=1,
+                                expand=True,
                             ),
                             ft.IconButton(
                                 icon=ft.icons.COPY,
@@ -311,6 +303,7 @@ def main(page: ft.Page) -> None:
         texto_contador.value = f"Mostrando os últimos {total} código(s)"
         page.update()
 
+    # --- 2.5. Geração de Código ---
     def _executar_geracao() -> None:
         """Executa a geração do código em thread separada para não bloquear a UI."""
         resultado = controller.gerar(
@@ -321,7 +314,6 @@ def main(page: ft.Page) -> None:
         )
 
         if resultado.get("pausado"):
-            # Exibe o banner de Supabase pausado
             banner_pausado.visible = True
             txt_reconectar_status.value = "Despause o projeto em app.supabase.com e clique em Reconectar."
             btn_reconectar.disabled = False
@@ -346,11 +338,7 @@ def main(page: ft.Page) -> None:
         page.update()
 
     def handle_gerar(e: ft.ControlEvent) -> None:
-        """Inicia a geração de código se não houver operação em andamento.
-
-        Args:
-            e: Evento de clique no botão de geração.
-        """
+        """Inicia a geração de código se não houver operação em andamento."""
         if _gerando.is_set():
             return
 
@@ -362,7 +350,7 @@ def main(page: ft.Page) -> None:
 
         threading.Thread(target=_executar_geracao, daemon=True).start()
 
-    # --- 2.4. Botão de Gerar ---
+    # --- 2.6. Botão de Gerar ---
     progress_ring = ft.ProgressRing(width=20, height=20, color="white", visible=False)
     btn_gerar = ft.ElevatedButton(
         content=ft.Row(
@@ -385,9 +373,8 @@ def main(page: ft.Page) -> None:
 
     btn_container = ft.Container(content=btn_gerar, width=float("inf"))
 
-    # --- 2.5. Dialog de Configuração com Confirmação ---
+    # --- 2.7. Dialog de Configuração (Salvar seed + Excluir + Reset) ---
     cfg_tipo = ft.Dropdown(
-        label="Tipo",
         options=[
             ft.dropdown.Option(t["key"], t["label"].split(" (")[0])
             for t in TIPOS_EQUIPAMENTO
@@ -395,7 +382,7 @@ def main(page: ft.Page) -> None:
         value=TIPOS_EQUIPAMENTO[0]["key"],
         filled=True,
         bgcolor="#f8fafc",
-        border_radius=12,
+        border_radius=8,
         border_color="#e2e8f0",
         focused_border_color="#132D5C",
         content_padding=15,
@@ -403,60 +390,28 @@ def main(page: ft.Page) -> None:
     )
 
     cfg_seed = ft.TextField(
-        label="Patrimônio",
         prefix_text="BT1",
         keyboard_type=ft.KeyboardType.NUMBER,
         filled=True,
         bgcolor="#f8fafc",
-        border_radius=12,
+        border_radius=8,
         border_color="#e2e8f0",
         focused_border_color="#132D5C",
         content_padding=15,
     )
 
-    def fechar_dlg(e: ft.ControlEvent) -> None:
-        """Fecha o dialog de configuração.
+    cfg_excluir_codigo = ft.TextField(
+        hint_text="Ex: 150",
+        keyboard_type=ft.KeyboardType.NUMBER,
+        filled=True,
+        bgcolor="#f8fafc",
+        border_radius=8,
+        border_color="#e2e8f0",
+        focused_border_color="#dc2626",
+        content_padding=15,
+    )
 
-        Args:
-            e: Evento de clique no botão Cancelar.
-        """
-        dlg_config.open = False
-        cfg_seed.error_text = None
-        page.update()
-
-    def fechar_dlg_confirmacao(e: ft.ControlEvent) -> None:
-        """Fecha o dialog de confirmação sem salvar.
-
-        Args:
-            e: Evento de clique no botão Cancelar da confirmação.
-        """
-        dlg_confirmacao.open = False
-        page.update()
-
-    def _confirmar_e_salvar(tipo: str, seed_num: int) -> None:
-        """Persiste a seed após confirmação e exibe snackbar de resultado.
-
-        Args:
-            tipo: Código do tipo de equipamento.
-            seed_num: Valor numérico da seed validada.
-        """
-        dlg_confirmacao.open = False
-        resultado = controller.configurar({"tipo": tipo, "seed": seed_num})
-
-        if "error" in resultado:
-            cfg_seed.error_text = f"Erro ao salvar: {resultado['error']}"
-            page.update()
-            return
-
-        cfg_seed.value = ""
-        dlg_config.open = False
-        page.snack_bar = ft.SnackBar(
-            ft.Text(f"Seed para '{tipo}' atualizada para {seed_num:0{CODIGO_ZFILL}d}!"),
-            bgcolor="#059669",
-        )
-        page.snack_bar.open = True
-        page.update()
-
+    # --- Dialogs de confirmação ---
     dlg_confirmacao = ft.AlertDialog(
         modal=True,
         title=ft.Row(
@@ -474,12 +429,134 @@ def main(page: ft.Page) -> None:
         shape=ft.RoundedRectangleBorder(radius=16),
     )
 
-    def salvar_config(e: ft.ControlEvent) -> None:
-        """Valida a seed informada e abre dialog de confirmação antes de persistir.
+    dlg_confirmar_exclusao = ft.AlertDialog(
+        modal=True,
+        title=ft.Row(
+            [
+                ft.Icon(ft.icons.DELETE_FOREVER, color="#dc2626"),
+                ft.Text(
+                    "Confirmar exclusão",
+                    color="#dc2626",
+                    size=16,
+                    weight=ft.FontWeight.BOLD,
+                ),
+            ]
+        ),
+        content=ft.Text("", size=14),
+        shape=ft.RoundedRectangleBorder(radius=16),
+    )
 
-        Args:
-            e: Evento de clique no botão Salvar do dialog de configuração.
-        """
+    dlg_confirmar_reset = ft.AlertDialog(
+        modal=True,
+        title=ft.Row(
+            [
+                ft.Icon(ft.icons.DANGEROUS, color="#991b1b"),
+                ft.Text("RESET TOTAL DO SISTEMA", color="#991b1b", size=18, weight=ft.FontWeight.BOLD),
+            ]
+        ),
+        content=ft.Text(
+            "Você está prestes a apagar TODOS os registros de histórico e seeds do Supabase.\n\n"
+            "Esta ação é IRREVERSÍVEL e o sistema começará totalmente do zero.\n\n"
+            "Deseja realmente prosseguir?",
+            size=14, color="#1e293b"
+        ),
+        shape=ft.RoundedRectangleBorder(radius=16),
+    )
+
+    def fechar_dlg_reset(e: ft.ControlEvent) -> None:
+        dlg_confirmar_reset.open = False
+        page.update()
+
+    def _confirmar_e_resetar(e: ft.ControlEvent) -> None:
+        dlg_confirmar_reset.open = False
+        page.update()
+        
+        resultado = controller.resetar_banco()
+        if "error" in resultado:
+            page.snack_bar = ft.SnackBar(ft.Text(f"Erro ao resetar: {resultado['error']}"), bgcolor="#dc2626")
+            page.snack_bar.open = True
+            page.update()
+            return
+            
+        dlg_config.open = False
+        _atualizar_historico()
+        page.snack_bar = ft.SnackBar(
+            ft.Text("Banco de dados resetado com sucesso! Tudo foi zerado."),
+            bgcolor="#059669"
+        )
+        page.snack_bar.open = True
+        page.update()
+
+    def abrir_dialog_reset() -> None:
+        dlg_confirmar_reset.actions = [
+            ft.TextButton("Cancelar", on_click=fechar_dlg_reset),
+            ft.ElevatedButton("SIM, RESETAR TUDO", bgcolor="#991b1b", color="white", on_click=_confirmar_e_resetar)
+        ]
+        dlg_confirmar_reset.actions_padding = 10
+        dlg_confirmar_reset.open = True
+        page.update()
+
+    def fechar_dlg(e: ft.ControlEvent) -> None:
+        """Fecha o dialog de configuração."""
+        dlg_config.open = False
+        cfg_seed.error_text = None
+        cfg_excluir_codigo.error_text = None
+        page.update()
+
+    def fechar_dlg_confirmacao(e: ft.ControlEvent) -> None:
+        """Fecha o dialog de confirmação sem salvar."""
+        dlg_confirmacao.open = False
+        page.update()
+
+    def fechar_dlg_exclusao(e: ft.ControlEvent) -> None:
+        """Fecha o dialog de confirmação de exclusão."""
+        dlg_confirmar_exclusao.open = False
+        page.update()
+
+    def _confirmar_e_salvar(tipo: str, seed_num: int) -> None:
+        """Persiste a seed após confirmação e exibe snackbar de resultado."""
+        dlg_confirmacao.open = False
+        resultado = controller.configurar({"tipo": tipo, "seed": seed_num})
+
+        if "error" in resultado:
+            cfg_seed.error_text = f"Erro ao salvar: {resultado['error']}"
+            page.update()
+            return
+
+        cfg_seed.value = ""
+        dlg_config.open = False
+        page.snack_bar = ft.SnackBar(
+            ft.Text(f"Seed para '{tipo}' atualizada para {seed_num:0{CODIGO_ZFILL}d}!"),
+            bgcolor="#059669",
+        )
+        page.snack_bar.open = True
+        page.update()
+
+    def _confirmar_e_excluir(tipo: str, codigo_num: int) -> None:
+        """Executa a exclusão após confirmação e exibe snackbar de resultado."""
+        dlg_confirmar_exclusao.open = False
+        page.update()
+
+        resultado = controller.excluir({"tipo": tipo, "codigo_num": codigo_num})
+
+        if "error" in resultado:
+            cfg_excluir_codigo.error_text = f"Erro: {resultado['error']}"
+            page.update()
+            return
+
+        qtd = resultado.get("qtd", 0)
+        cfg_excluir_codigo.value = ""
+        dlg_config.open = False
+        _atualizar_historico()
+        page.snack_bar = ft.SnackBar(
+            ft.Text(f"Excluídos {qtd} registro(s). Seed rebobinada com sucesso!"),
+            bgcolor="#059669",
+        )
+        page.snack_bar.open = True
+        page.update()
+
+    def salvar_config(e: ft.ControlEvent) -> None:
+        """Valida a seed informada e abre dialog de confirmação antes de persistir."""
         cfg_seed.error_text = None
 
         if not cfg_seed.value:
@@ -523,49 +600,169 @@ def main(page: ft.Page) -> None:
             ),
         ]
         dlg_confirmacao.actions_padding = 10
-        page.dialog = dlg_confirmacao
         dlg_confirmacao.open = True
         page.update()
 
+    def excluir_patrimonio(e: ft.ControlEvent) -> None:
+        """Valida o código de exclusão e abre dialog de confirmação."""
+        cfg_excluir_codigo.error_text = None
+
+        if not cfg_excluir_codigo.value:
+            cfg_excluir_codigo.error_text = "Informe o número."
+            page.update()
+            return
+
+        cod_text = str(cfg_excluir_codigo.value).strip()
+        if not cod_text.isdigit():
+            cfg_excluir_codigo.error_text = "Insira apenas números."
+            page.update()
+            return
+
+        codigo_num = int(cod_text)
+        tipo = str(cfg_tipo.value)
+
+        dlg_confirmar_exclusao.content = ft.Text(
+            f"Tipo: {tipo}\n\n"
+            f"Serão excluídos todos os patrimônios com número >= {codigo_num:0{CODIGO_ZFILL}d} "
+            f"e a seed será rebobinada para {max(0, codigo_num - 1):0{CODIGO_ZFILL}d}.\n\n"
+            "Esta ação é IRREVERSÍVEL. Confirma?",
+            size=14,
+        )
+        dlg_confirmar_exclusao.actions = [
+            ft.TextButton("Cancelar", on_click=fechar_dlg_exclusao),
+            ft.ElevatedButton(
+                "Excluir",
+                bgcolor="#dc2626",
+                color="white",
+                on_click=lambda _: _confirmar_e_excluir(tipo, codigo_num),
+            ),
+        ]
+        dlg_confirmar_exclusao.actions_padding = 10
+        dlg_confirmar_exclusao.open = True
+        page.update()
+
+    # --- Seções Minimalistas do Dialog ---
     btn_salvar_cfg = ft.ElevatedButton(
-        "Salvar", on_click=salvar_config, bgcolor="#059669", color="white"
+        "Atualizar Seed", on_click=salvar_config, bgcolor="#059669", color="white",
+        height=48,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
     )
-    btn_fechar_cfg = ft.TextButton("Cancelar", on_click=fechar_dlg)
+
+    col_tipo = ft.Column([
+        ft.Text("Tipo de Equipamento", size=12, color="#64748b", weight=ft.FontWeight.W_500),
+        cfg_tipo
+    ], spacing=4, expand=2)
+
+    col_numero = ft.Column([
+        ft.Text("Novo Número", size=12, color="#64748b", weight=ft.FontWeight.W_500),
+        cfg_seed
+    ], spacing=4, expand=3)
+
+    col_btn_salvar = ft.Column([
+        ft.Text(" ", size=12),  # Espaçador invisível para empurrar o botão para baixo e alinhar
+        btn_salvar_cfg
+    ], spacing=4)
+
+    secao_seed = ft.Column(
+        [
+            ft.Text("Ajustar Sequência", size=15, weight=ft.FontWeight.BOLD, color="#1e293b"),
+            ft.Text("Define o próximo número a ser gerado para o tipo selecionado.", size=12, color="#64748b"),
+            ft.Row([col_tipo, col_numero, col_btn_salvar], spacing=15, vertical_alignment=ft.CrossAxisAlignment.START)
+        ],
+        spacing=8
+    )
+
+    btn_excluir_cfg = ft.ElevatedButton(
+        "Excluir a partir deste", on_click=excluir_patrimonio, color="#dc2626", bgcolor="#fee2e2",
+        height=48,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+    )
+
+    col_excluir_codigo = ft.Column([
+        ft.Text("Código (apenas número)", size=12, color="#64748b", weight=ft.FontWeight.W_500),
+        cfg_excluir_codigo
+    ], spacing=4, expand=True)
+
+    col_btn_excluir = ft.Column([
+        ft.Text(" ", size=12),
+        btn_excluir_cfg
+    ], spacing=4)
+
+    secao_excluir = ft.Column(
+        [
+            ft.Text("Correção de Histórico", size=15, weight=ft.FontWeight.BOLD, color="#1e293b"),
+            ft.Text("Exclui o patrimônio informado e todos acima dele, rebobinando a seed.", size=12, color="#64748b"),
+            ft.Row([col_excluir_codigo, col_btn_excluir], spacing=15, vertical_alignment=ft.CrossAxisAlignment.START)
+        ],
+        spacing=8
+    )
+
+    btn_reset_db = ft.ElevatedButton(
+        "Resetar Banco de Dados",
+        icon=ft.icons.WARNING_AMBER,
+        icon_color="white",
+        color="white",
+        bgcolor="#991b1b",
+        height=48,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+        on_click=lambda _: abrir_dialog_reset()
+    )
+
+    secao_perigo = ft.Column(
+        [
+            ft.Text("Zona de Perigo", size=15, weight=ft.FontWeight.BOLD, color="#991b1b"),
+            ft.Text("Apaga todo o histórico e todas as seeds irremediavelmente.", size=12, color="#991b1b"),
+            ft.Row([btn_reset_db], alignment=ft.MainAxisAlignment.START)
+        ],
+        spacing=8
+    )
+
+    btn_fechar_cfg_dialog = ft.TextButton("Fechar Configurações", on_click=fechar_dlg)
 
     dlg_config = ft.AlertDialog(
         modal=True,
         title=ft.Row(
             [
                 ft.Icon(ft.icons.SETTINGS, color="#132D5C"),
-                ft.Text(
-                    "Configuração",
-                    color="#132D5C",
-                    size=18,
-                    weight=ft.FontWeight.BOLD,
-                ),
+                ft.Text("Configurações do Sistema", color="#132D5C", size=18, weight=ft.FontWeight.BOLD),
             ]
         ),
         content=ft.Container(
-            content=ft.Column([cfg_tipo, cfg_seed], tight=True, spacing=15),
-            width=350,
-            padding=5,
+            content=ft.Column(
+                [
+                    secao_seed,
+                    ft.Divider(height=30, color="#e2e8f0"),
+                    secao_excluir,
+                    ft.Divider(height=30, color="#e2e8f0"),
+                    secao_perigo
+                ],
+                tight=True,
+                spacing=0,
+                scroll=ft.ScrollMode.AUTO
+            ),
+            width=650,
+            padding=10,
         ),
-        actions=[btn_fechar_cfg, btn_salvar_cfg],
+        actions=[btn_fechar_cfg_dialog],
         actions_padding=10,
         shape=ft.RoundedRectangleBorder(radius=16),
     )
 
-    def abrir_config(e: ft.ControlEvent) -> None:
-        """Abre o painel de configuração de seed.
+    # Registrar todos os dialogs no overlay para evitar conflitos
+    page.overlay.extend([dlg_config, dlg_confirmacao, dlg_confirmar_exclusao, dlg_confirmar_reset])
 
-        Args:
-            e: Evento de clique no ícone de configurações do header.
-        """
-        page.dialog = dlg_config
+    def abrir_config(e: ft.ControlEvent) -> None:
+        """Abre o painel de configuração de seed."""
         dlg_config.open = True
         page.update()
 
-    # --- 2.6. Montagem Principal de Seções Gráficas ---
+    # --- 2.8. Callback de mudança de aba ---
+    def on_tab_change(e: ft.ControlEvent) -> None:
+        """Atualiza o histórico automaticamente ao mudar para a aba Histórico."""
+        if e.control.selected_index == 1:
+            _atualizar_historico()
+
+    # --- 2.9. Montagem Principal de Seções Gráficas ---
     header = ft.Container(
         content=ft.Row(
             [
@@ -594,47 +791,73 @@ def main(page: ft.Page) -> None:
         border_radius=ft.border_radius.only(bottom_left=16, bottom_right=16),
     )
 
-    body = ft.Container(
-        content=ft.Column(
-            [
-                ft.Row([combo_tipo, combo_unidade], spacing=15),
-                btn_container,
-                banner_pausado,
-                container_erro,
-                result_container,
-                ft.Divider(height=10, color=ft.colors.TRANSPARENT),
-                ft.Row(
-                    [
-                        ft.Icon(ft.icons.HISTORY, size=16, color="#9ca3af"),
-                        ft.Text(
-                            "HISTÓRICO RECENTE",
-                            size=11,
-                            weight=ft.FontWeight.BOLD,
-                            color="#9ca3af",
-                        ),
-                        ft.IconButton(
-                            icon=ft.icons.REFRESH,
-                            icon_size=14,
-                            icon_color="#9ca3af",
-                            tooltip="Atualizar histórico",
-                            on_click=lambda e: _atualizar_historico(),
-                        ),
-                        ft.Container(expand=True),
-                        texto_contador,
-                    ],
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                historico_list,
-            ],
-            spacing=10,
-            scroll=ft.ScrollMode.AUTO,
+    # --- Aba Gerar ---
+    tab_gerar = ft.Tab(
+        text="Gerar",
+        icon=ft.icons.QR_CODE,
+        content=ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row([combo_tipo, combo_unidade], spacing=15),
+                    btn_container,
+                    banner_pausado,
+                    container_erro,
+                    result_container,
+                ],
+                spacing=10,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            padding=20,
         ),
-        padding=20,
-        expand=True,
     )
 
-    page.add(ft.Column([header, body], spacing=0, expand=True))
-    
+    # --- Aba Histórico ---
+    tab_historico = ft.Tab(
+        text="Histórico",
+        icon=ft.icons.HISTORY,
+        content=ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(ft.icons.HISTORY, size=16, color="#9ca3af"),
+                            ft.Text(
+                                "HISTÓRICO DE PATRIMÔNIOS",
+                                size=11,
+                                weight=ft.FontWeight.BOLD,
+                                color="#9ca3af",
+                            ),
+                            ft.IconButton(
+                                icon=ft.icons.REFRESH,
+                                icon_size=14,
+                                icon_color="#9ca3af",
+                                tooltip="Atualizar histórico",
+                                on_click=lambda e: _atualizar_historico(),
+                            ),
+                            ft.Container(expand=True),
+                            texto_contador,
+                        ],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    historico_list,
+                ],
+                spacing=10,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            padding=20,
+        ),
+    )
+
+    tabs = ft.Tabs(
+        selected_index=0,
+        animation_duration=300,
+        tabs=[tab_gerar, tab_historico],
+        expand=True,
+        on_change=on_tab_change,
+    )
+
+    page.add(ft.Column([header, tabs], spacing=0, expand=True))
+
     # Atualiza o histórico ao iniciar a aplicação
     _atualizar_historico()
 
