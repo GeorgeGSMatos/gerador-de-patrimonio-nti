@@ -136,3 +136,46 @@ class PatrimonioController:
         except Exception as e:
             logger.error("Erro ao buscar históricos globais: %s", e)
             return []
+
+    def excluir(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Exclui patrimônios a partir de um código (inclusive) e todos acima.
+
+        Args:
+            data: Dicionário com 'tipo' (str) e 'codigo_num' (int).
+
+        Returns:
+            {'success': True, 'qtd': int} em caso de êxito ou {'error': str}.
+        """
+        tipo: str | None = data.get('tipo')
+        codigo_num: Any = data.get('codigo_num')
+
+        if not tipo or codigo_num is None:
+            return {'error': 'Tipo e código são obrigatórios.'}
+
+        try:
+            codigo_num = int(str(codigo_num).strip())
+        except ValueError:
+            return {'error': 'O código informado não é um número válido.'}
+
+        if codigo_num < 0:
+            return {'error': 'O código deve ser maior ou igual a zero.'}
+
+        try:
+            qtd = self.model.excluir_patrimonios_acima(tipo, codigo_num)
+            return {'success': True, 'qtd': qtd}
+        except Exception as e:
+            logger.error("Erro ao excluir patrimônios tipo='%s': %s", tipo, e)
+            return {'error': str(e)}
+
+    def resetar_banco(self) -> dict[str, Any]:
+        """Limpa completamente o banco de dados (histórico e seeds).
+
+        Returns:
+            {'success': True} em caso de êxito ou {'error': str}.
+        """
+        try:
+            self.model.resetar_banco()
+            return {'success': True}
+        except Exception as e:
+            logger.error("Erro ao resetar banco: %s", e)
+            return {'error': str(e)}

@@ -390,7 +390,7 @@ def main(page: ft.Page) -> None:
     )
 
     cfg_seed = ft.TextField(
-        prefix_text="BT1",
+        prefix_text="BT",
         keyboard_type=ft.KeyboardType.NUMBER,
         filled=True,
         bgcolor="#f8fafc",
@@ -401,8 +401,8 @@ def main(page: ft.Page) -> None:
     )
 
     cfg_excluir_codigo = ft.TextField(
-        hint_text="Ex: 150",
-        keyboard_type=ft.KeyboardType.NUMBER,
+        hint_text="Ex: N305-BT100123",
+        keyboard_type=ft.KeyboardType.TEXT,
         filled=True,
         bgcolor="#f8fafc",
         border_radius=8,
@@ -451,13 +451,13 @@ def main(page: ft.Page) -> None:
         title=ft.Row(
             [
                 ft.Icon(ft.icons.DANGEROUS, color="#991b1b"),
-                ft.Text("RESET TOTAL DO SISTEMA", color="#991b1b", size=18, weight=ft.FontWeight.BOLD),
+                ft.Text("Aviso de Exclusão Total", color="#991b1b", size=18, weight=ft.FontWeight.BOLD),
             ]
         ),
         content=ft.Text(
-            "Você está prestes a apagar TODOS os registros de histórico e seeds do Supabase.\n\n"
-            "Esta ação é IRREVERSÍVEL e o sistema começará totalmente do zero.\n\n"
-            "Deseja realmente prosseguir?",
+            "Atenção: Você está prestes a apagar TODOS os patrimônios gerados e zerar as contagens de todos os equipamentos.\n\n"
+            "Ao confirmar, o sistema ficará completamente vazio, como se nunca tivesse sido usado. Essa ação não pode ser desfeita.\n\n"
+            "Deseja realmente apagar tudo?",
             size=14, color="#1e293b"
         ),
         shape=ft.RoundedRectangleBorder(radius=16),
@@ -490,7 +490,7 @@ def main(page: ft.Page) -> None:
     def abrir_dialog_reset() -> None:
         dlg_confirmar_reset.actions = [
             ft.TextButton("Cancelar", on_click=fechar_dlg_reset),
-            ft.ElevatedButton("SIM, RESETAR TUDO", bgcolor="#991b1b", color="white", on_click=_confirmar_e_resetar)
+            ft.ElevatedButton("Sim, Apagar Tudo", bgcolor="#991b1b", color="white", on_click=_confirmar_e_resetar)
         ]
         dlg_confirmar_reset.actions_padding = 10
         dlg_confirmar_reset.open = True
@@ -586,7 +586,7 @@ def main(page: ft.Page) -> None:
         )
 
         dlg_confirmacao.content = ft.Text(
-            f"Tipo: {tipo}\n\nValor atual: {atual}\nNovo valor: {seed_num:06d}\n\n"
+            f"Tipo: {tipo}\n\nValor atual: {atual}\nNovo valor: {seed_num:0{CODIGO_ZFILL}d}\n\n"
             "Confirma a substituição?",
             size=14,
         )
@@ -604,34 +604,87 @@ def main(page: ft.Page) -> None:
         page.update()
 
     def excluir_patrimonio(e: ft.ControlEvent) -> None:
-        """Valida o código de exclusão e abre dialog de confirmação."""
+        """Valida o código de exclusão completo e abre dialog de confirmação."""
         cfg_excluir_codigo.error_text = None
 
         if not cfg_excluir_codigo.value:
-            cfg_excluir_codigo.error_text = "Informe o número."
+            cfg_excluir_codigo.error_text = "Informe o código completo."
             page.update()
             return
 
-        cod_text = str(cfg_excluir_codigo.value).strip()
-        if not cod_text.isdigit():
-            cfg_excluir_codigo.error_text = "Insira apenas números."
+        cod_text = str(cfg_excluir_codigo.value).strip().upper()
+        if "-" not in cod_text:
+            cfg_excluir_codigo.error_text = "Formato inválido. Ex: N305-BT100123"
             page.update()
             return
 
-        codigo_num = int(cod_text)
-        tipo = str(cfg_tipo.value)
+        partes = cod_text.split("-")
+        prefixo = partes[0]
+        numero_str = partes[1]
+
+        numero_str_limpo = numero_str.replace("BT", "")
+        if not numero_str_limpo.isdigit():
+            cfg_excluir_codigo.error_text = "O final do código deve conter apenas números após BT."
+            page.update()
+            return
+
+        codigo_num = int(numero_str_limpo)
+        
+        # Parse Unidade
+        unidade_encontrada = None
+        from config import UNIDADES, TIPOS_EQUIPAMENTO
+        for u in UNIDADES:
+            if prefixo.endswith(u["key"]):
+                unidade_encontrada = u
+                break
+        
+        if not unidade_encontrada:
+            cfg_excluir_codigo.error_text = "Unidade não reconhecida no código."
+            page.update()
+            return
+
+        # Parse Tipo
+        tipo_str = prefixo[:-len(unidade_encontrada["key"])]
+        
+        tipo_encontrado = None
+        for t in TIPOS_EQUIPAMENTO:
+            if t["key"] == tipo_str:
+                tipo_encontrado = t
+                break
+                
+        if not tipo_encontrado:
+            cfg_excluir_codigo.error_text = "Tipo de equipamento não reconhecido."
+            page.update()
+            return
+            
+        tipo = tipo_encontrado["key"]
+        nome_tipo = tipo_encontrado["label"].split(" (")[0]
+        nome_unidade = unidade_encontrada["label"]
+
+        # Validação para só excluir o que já existe
+        configs = controller.get_configuracoes()
+        ultimo_codigo = next(
+            (c["Ultimo_Codigo"] for c in configs if c["Tipo_Equip"] == tipo),
+            0,
+        )
+
+        if codigo_num > ultimo_codigo:
+            cfg_excluir_codigo.error_text = f"Erro: Último número de {nome_tipo} foi {ultimo_codigo}."
+            page.update()
+            return
 
         dlg_confirmar_exclusao.content = ft.Text(
-            f"Tipo: {tipo}\n\n"
-            f"Serão excluídos todos os patrimônios com número >= {codigo_num:0{CODIGO_ZFILL}d} "
-            f"e a seed será rebobinada para {max(0, codigo_num - 1):0{CODIGO_ZFILL}d}.\n\n"
-            "Esta ação é IRREVERSÍVEL. Confirma?",
+            f"Equipamento: {nome_tipo}\n"
+            f"Unidade: {nome_unidade}\n\n"
+            f"Atenção: O patrimônio {cod_text} e todos os {nome_tipo}s com número maior que ele serão apagados do sistema.\n\n"
+            f"A contagem voltará a partir do número {max(0, codigo_num - 1):0{CODIGO_ZFILL}d}.\n\n"
+            "Essa ação não pode ser desfeita. Tem certeza?",
             size=14,
         )
         dlg_confirmar_exclusao.actions = [
             ft.TextButton("Cancelar", on_click=fechar_dlg_exclusao),
             ft.ElevatedButton(
-                "Excluir",
+                "Sim, Apagar",
                 bgcolor="#dc2626",
                 color="white",
                 on_click=lambda _: _confirmar_e_excluir(tipo, codigo_num),
@@ -643,7 +696,7 @@ def main(page: ft.Page) -> None:
 
     # --- Seções Minimalistas do Dialog ---
     btn_salvar_cfg = ft.ElevatedButton(
-        "Atualizar Seed", on_click=salvar_config, bgcolor="#059669", color="white",
+        "Salvar Novo Número", on_click=salvar_config, bgcolor="#059669", color="white",
         height=48,
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
     )
@@ -665,21 +718,21 @@ def main(page: ft.Page) -> None:
 
     secao_seed = ft.Column(
         [
-            ft.Text("Ajustar Sequência", size=15, weight=ft.FontWeight.BOLD, color="#1e293b"),
-            ft.Text("Define o próximo número a ser gerado para o tipo selecionado.", size=12, color="#64748b"),
+            ft.Text("Mudar Início da Contagem", size=15, weight=ft.FontWeight.BOLD, color="#1e293b"),
+            ft.Text("Define manualmente qual será o próximo número de patrimônio gerado para o equipamento escolhido.", size=12, color="#64748b"),
             ft.Row([col_tipo, col_numero, col_btn_salvar], spacing=15, vertical_alignment=ft.CrossAxisAlignment.START)
         ],
         spacing=8
     )
 
     btn_excluir_cfg = ft.ElevatedButton(
-        "Excluir a partir deste", on_click=excluir_patrimonio, color="#dc2626", bgcolor="#fee2e2",
+        "Apagar a partir deste", on_click=excluir_patrimonio, color="#dc2626", bgcolor="#fee2e2",
         height=48,
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
     )
 
     col_excluir_codigo = ft.Column([
-        ft.Text("Código (apenas número)", size=12, color="#64748b", weight=ft.FontWeight.W_500),
+        ft.Text("Código Completo", size=12, color="#64748b", weight=ft.FontWeight.W_500),
         cfg_excluir_codigo
     ], spacing=4, expand=True)
 
@@ -690,15 +743,15 @@ def main(page: ft.Page) -> None:
 
     secao_excluir = ft.Column(
         [
-            ft.Text("Correção de Histórico", size=15, weight=ft.FontWeight.BOLD, color="#1e293b"),
-            ft.Text("Exclui o patrimônio informado e todos acima dele, rebobinando a seed.", size=12, color="#64748b"),
+            ft.Text("Apagar Patrimônios Errados", size=15, weight=ft.FontWeight.BOLD, color="#1e293b"),
+            ft.Text("Apaga o número informado e todos os números maiores que ele. A contagem voltará ao normal.", size=12, color="#64748b"),
             ft.Row([col_excluir_codigo, col_btn_excluir], spacing=15, vertical_alignment=ft.CrossAxisAlignment.START)
         ],
         spacing=8
     )
 
     btn_reset_db = ft.ElevatedButton(
-        "Resetar Banco de Dados",
+        "Zerar o Sistema",
         icon=ft.icons.WARNING_AMBER,
         icon_color="white",
         color="white",
@@ -710,8 +763,8 @@ def main(page: ft.Page) -> None:
 
     secao_perigo = ft.Column(
         [
-            ft.Text("Zona de Perigo", size=15, weight=ft.FontWeight.BOLD, color="#991b1b"),
-            ft.Text("Apaga todo o histórico e todas as seeds irremediavelmente.", size=12, color="#991b1b"),
+            ft.Text("Restaurar Sistema", size=15, weight=ft.FontWeight.BOLD, color="#991b1b"),
+            ft.Text("Apaga permanentemente todo o histórico gerado e reinicia a contagem de todos os equipamentos.", size=12, color="#991b1b"),
             ft.Row([btn_reset_db], alignment=ft.MainAxisAlignment.START)
         ],
         spacing=8

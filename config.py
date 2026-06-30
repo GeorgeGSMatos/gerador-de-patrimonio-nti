@@ -23,18 +23,18 @@ UNIDADES: list[dict[str, str]] = [
 # ==============================================================================
 # 3. JANELA
 # ==============================================================================
-WINDOW_WIDTH: int = 600
-WINDOW_HEIGHT: int = 460
-WINDOW_MIN_WIDTH: int = 500
-WINDOW_MIN_HEIGHT: int = 420
+WINDOW_WIDTH: int = 800
+WINDOW_HEIGHT: int = 520
+WINDOW_MIN_WIDTH: int = 800
+WINDOW_MIN_HEIGHT: int = 520
 
 # ==============================================================================
 # 4. GERAÇÃO DE CÓDIGOS
 # ==============================================================================
 SEED_MIN: int = 0
-SEED_MAX: int = 99_999
-CODIGO_ZFILL: int = 5
-HISTORICO_SESSAO_MAX: int = 5
+SEED_MAX: int = 999_999
+CODIGO_ZFILL: int = 6
+HISTORICO_SESSAO_MAX: int = 50
 
 # ==============================================================================
 # 5. ASSETS

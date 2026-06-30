@@ -208,6 +208,95 @@ class PatrimonioModel:
             logger.warning("[Keep-alive] Ping ao Supabase falhou: %s", e)
             return False
 
+    def excluir_patrimonios_acima(self, tipo: str, codigo_num: int) -> int:
+        """Exclui do histórico os patrimônios com número >= codigo_num para o tipo informado.
+
+        Também rebobina a seed em controle_sequencia para codigo_num - 1.
+
+        Args:
+            tipo: Código do tipo de equipamento (ex: 'N', 'C', 'M').
+            codigo_num: Número a partir do qual excluir (inclusive).
+
+        Returns:
+            Quantidade de registros excluídos do histórico.
+
+        Raises:
+            RuntimeError: Se ocorrer erro durante a exclusão.
+        """
+        try:
+            # Busca registros do histórico para o tipo informado
+            response = self._supabase.table("historico_patrimonio") \
+                .select("id_gerado, codigo_patrimonio") \
+                .execute()
+
+            # Filtra os registros que pertencem ao tipo e cujo número >= codigo_num
+            ids_para_excluir = []
+            for row in response.data:
+                cod = row["codigo_patrimonio"]
+                try:
+                    partes = cod.split("-")
+                    if len(partes) != 2:
+                        continue
+                        
+                    prefixo = partes[0]
+                    numero_str = partes[1]
+                    
+                    numero_str_limpo = numero_str.replace("BT", "")
+                    parte_num = int(numero_str_limpo)
+                    
+                    # O formato é {TIPO}{UNIDADE}-BT{NUMERO} (ex: N305-BT100123)
+                    # Podemos verificar se o prefixo começa exatamente com o tipo
+                    # Ex: se tipo for 'N', 'N305' começa com 'N'.
+                    # Isso evita falsos positivos pois a unidade vem logo em seguida.
+                    if prefixo.startswith(tipo) and parte_num >= codigo_num:
+                        ids_para_excluir.append(row["id_gerado"])
+                except (ValueError, IndexError):
+                    continue
+
+            if ids_para_excluir:
+                # Deleta todos os IDs de uma vez só (evita N+1 requests e falhas no meio)
+                self._supabase.table("historico_patrimonio") \
+                    .delete() \
+                    .in_("id_gerado", ids_para_excluir) \
+                    .execute()
+
+            # Rebobinar a seed para codigo_num - 1
+            nova_seed = max(0, codigo_num - 1)
+            self.set_configuracao(tipo, nova_seed)
+
+            qtd = len(ids_para_excluir)
+            logger.info(
+                "Excluídos %d registro(s) do histórico para tipo='%s' (>= %d). Seed rebobinada para %d.",
+                qtd, tipo, codigo_num, nova_seed
+            )
+            return qtd
+
+        except Exception as e:
+            logger.error("Erro ao excluir patrimônios tipo='%s': %s", tipo, e)
+            raise RuntimeError(f"Erro ao excluir patrimônios: {e}") from e
+
+    def resetar_banco(self) -> None:
+        """Limpa completamente todo o histórico e as configurações de sequência do banco.
+        
+        Ação destrutiva e irreversível.
+
+        Raises:
+            RuntimeError: Se ocorrer erro durante o reset.
+        """
+        try:
+            # No Supabase/PostgREST, o delete requer uma condição de filtro.
+            # Como queremos deletar tudo, filtramos usando uma condição sempre verdadeira
+            # id_gerado é int, então id_gerado > -1 ou id_gerado.neq(-1) atende.
+            self._supabase.table("historico_patrimonio").delete().gt("id_gerado", -1).execute()
+            
+            # Para o controle de sequencia, tipo_equip é string
+            self._supabase.table("controle_sequencia").delete().neq("tipo_equip", "XYZ_INEXISTENTE").execute()
+            
+            logger.warning("Banco de dados RESETADO com sucesso pelo usuário.")
+        except Exception as e:
+            logger.error("Erro ao resetar banco de dados: %s", e)
+            raise RuntimeError(f"Erro crítico ao resetar banco: {e}") from e
+
 
 # ==============================================================================
 # 3. FUNÇÕES AUXILIARES
